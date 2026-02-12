@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フックの法則 実験ラボ</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            background-color: #f0f9ff; /* Light blue background */
+            touch-action: manipulation; /* Prevent zoom on double tap */
+        }
+        canvas {
+            user-select: none;
+        }
+        .panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .btn {
+            transition: all 0.2s;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+        /* Fade in animation for explanation */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-blue-600 text-white p-3 shadow-md flex justify-between items-center z-10">
+        <div>
+            <h1 class="text-lg md:text-xl font-bold flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-flask-conical"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>
+                フックの法則 実験ラボ
+            </h1>
+        </div>
+        <div class="text-xs md:text-sm bg-blue-700 px-2 py-1 rounded">
+            Ver <span id="version-display">1.5.1</span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden">
+        
+        <!-- Left: Simulation Area -->
+        <section class="flex-1 relative bg-slate-100 flex flex-col border-b md:border-b-0 md:border-r border-gray-300">
+            <div class="absolute top-4 left-4 z-10 bg-white/90 p-2 rounded shadow backdrop-blur-sm">
+                <div class="text-sm font-bold text-gray-600">現在の設定</div>
+                <div class="text-xl font-bold text-blue-600" id="spring-name-display">ばねA</div>
+                <div class="text-xs text-gray-500 mt-1" id="spring-spec-display">10gで1㎝伸びる</div>
+            </div>
+
+            <!-- Physics Canvas -->
+            <div class="flex-1 flex justify-center items-start pt-10 overflow-y-auto">
+                <canvas id="simCanvas" width="380" height="900" class="max-w-full"></canvas>
+            </div>
+
+            <!-- Controls -->
+            <div class="p-4 bg-white border-t border-gray-200">
+                <div class="flex flex-col gap-4 max-w-lg mx-auto">
+                    <!-- Weight Control -->
+                    <div class="flex items-center justify-between bg-gray-50 p-3 rounded-lg border border-gray-200">
+                        <div class="text-center">
+                            <div class="text-xs text-gray-500 mb-1">おもりの質量 / 力の大きさ</div>
+                            <div class="flex items-baseline justify-center gap-2">
+                                <div class="font-bold text-xl"><span id="total-weight">0</span>g</div>
+                                <div class="text-lg text-gray-600 font-bold">= <span id="total-force" class="text-blue-600">0.0</span> N</div>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">(20g [0.2N] × <span id="weight-count">0</span>個)</div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="updateWeight(-1)" class="btn bg-red-100 hover:bg-red-200 text-red-600 font-bold py-2 px-4 rounded-lg shadow border border-red-200">
+                                － 減らす
+                            </button>
+                            <button onclick="updateWeight(1)" class="btn bg-blue-100 hover:bg-blue-200 text-blue-600 font-bold py-2 px-4 rounded-lg shadow border border-blue-200">
+                                ＋ 増やす
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Spring Switcher -->
+                    <div class="flex gap-2">
+                        <button onclick="switchSpring('A')" id="btn-spring-a" class="flex-1 py-2 rounded-lg font-bold border-2 border-blue-500 bg-blue-500 text-white transition-colors">
+                            ばねA (柔らかい)
+                        </button>
+                        <button onclick="switchSpring('B')" id="btn-spring-b" class="flex-1 py-2 rounded-lg font-bold border-2 border-gray-300 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+                            ばねB (硬い)
+                        </button>
+                    </div>
+
+                    <!-- Reset Button -->
+                    <button onclick="resetExperiment()" class="w-full py-2 rounded-lg font-bold border border-gray-300 bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-red-600 transition-colors flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        実験をリセットする
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Data & Challenge -->
+        <section class="w-full md:w-96 lg:w-1/3 bg-white flex flex-col h-1/2 md:h-auto overflow-y-auto">
+            
+            <!-- Tabs -->
+            <div class="flex border-b">
+                <button onclick="switchTab('data')" id="tab-data" class="flex-1 py-3 text-sm font-bold border-b-2 border-blue-500 text-blue-600 bg-blue-50">
+                    グラフと結果
+                </button>
+                <button onclick="switchTab('challenge')" id="tab-challenge" class="flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:bg-gray-50">
+                    チャレンジ問題
+                </button>
+            </div>
+
+            <!-- Data Panel -->
+            <div id="panel-data" class="p-4 flex-1 flex flex-col gap-4">
+                <div class="bg-orange-50 border border-orange-200 p-3 rounded text-sm text-orange-800">
+                    <span class="font-bold">💡 ポイント:</span> 力の大きさとばねの伸びは比例します。グラフの形に注目しよう！
+                </div>
+
+                <div class="relative h-64 w-full">
+                    <canvas id="graphCanvas"></canvas>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-500">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                            <tr>
+                                <th scope="col" class="px-2 py-2 text-center">個数</th>
+                                <th scope="col" class="px-2 py-2 text-right">質量(g)</th>
+                                <th scope="col" class="px-2 py-2 text-right text-blue-700">力(N)</th>
+                                <th scope="col" class="px-2 py-2 text-right">伸び(㎝)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="data-table-body">
+                            <!-- Rows generated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Challenge Panel -->
+            <div id="panel-challenge" class="p-4 hidden flex-1 flex flex-col gap-4">
+                
+                <!-- Quiz Mode Selector -->
+                <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-lg mb-2">
+                    <label class="block text-xs font-bold text-indigo-800 mb-1">問題モード選択</label>
+                    <select id="quiz-mode-select" onchange="setQuizMode(this.value)" class="w-full p-2 text-sm border border-indigo-200 rounded text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="extension">1. 伸びを予測 (g → ㎝)</option>
+                        <option value="mass">2. 質量を予測 (㎝ → g)</option>
+                        <option value="force">3. 力を予測 (㎝ → N)</option>
+                    </select>
+                </div>
+
+                <div class="bg-white border-2 border-indigo-100 p-4 rounded-lg shadow-sm">
+                    <h3 class="font-bold text-indigo-800 mb-2 flex items-center gap-2">
+                        <span class="bg-indigo-600 text-white text-xs px-2 py-0.5 rounded-full">Q</span>
+                        問題
+                    </h3>
+                    <p class="text-sm text-indigo-900 mb-4 leading-relaxed" id="quiz-text">
+                        <!-- Quiz Text Here -->
+                    </p>
+                    
+                    <div class="flex gap-2 mb-2 items-center">
+                        <input type="number" id="quiz-input" placeholder="答え" class="flex-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <span class="font-bold text-gray-600 w-8" id="quiz-unit">㎝</span>
+                    </div>
+                    
+                    <button id="check-answer-btn" onclick="checkAnswer()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded shadow transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        答え合わせ
+                    </button>
+                    <div id="quiz-result" class="mt-3 text-center font-bold h-6 mb-2"></div>
+                    
+                    <!-- 解説エリア (デフォルト非表示) -->
+                    <div id="quiz-explanation" class="hidden mt-2 bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-gray-800 text-sm leading-relaxed fade-in">
+                        <!-- JSで動的に解説を挿入 -->
+                    </div>
+                </div>
+
+                <div class="mt-auto bg-gray-50 p-4 rounded border">
+                    <h4 class="font-bold text-gray-700 mb-2">先生からのアドバイス</h4>
+                    <p class="text-sm text-gray-600">
+                        「比例（ひれい）」とは、一方が2倍、3倍になると、もう一方も2倍、3倍になる関係のことです。<br>
+                        グラフが原点（0,0）を通る直線になっているか確認しましょう。<br>
+                        <span class="text-blue-600 font-bold mt-1 block">100gの物体にはたらく重力の大きさを約1N（ニュートン）とします。</span>
+                    </p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // --- Configuration & State ---
+        const APP_VERSION = "1.5.1"; // バージョン更新
+        document.getElementById('version-display').textContent = APP_VERSION;
+
+        // Physics Constants
+        const SPRING_SPECS = {
+            'A': { name: 'ばねA', ratePer20g: 2.0, color: '#3b82f6', desc: '10gで1㎝伸びる（伸びやすい）' },
+            'B': { name: 'ばねB', ratePer20g: 1.0, color: '#ef4444', desc: '20gで1㎝伸びる（伸びにくい）' }
+        };
+        
+        const WEIGHT_UNIT_G = 20; 
+        const WEIGHT_UNIT_N = 0.2; 
+        const MAX_WEIGHTS = 10;
+        const PIXELS_PER_CM = 15; 
+        const SPRING_NATURAL_LENGTH_PX = 100; 
+
+        let state = {
+            currentSpring: 'A',
+            weightCount: 0,
+            history: {
+                'A': [], 
+                'B': []
+            },
+            quizMode: 'extension' // 'extension', 'mass', 'force'
+        };
+
+        // --- Initialization ---
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        let chartInstance = null;
+
+        window.onload = () => {
+            initGraph();
+            resetExperimentData(); // Initialize with clean state
+            updateDisplay();
+            generateQuiz();
+        };
+
+        // --- Core Logic ---
+
+        function updateWeight(change) {
+            const newCount = state.weightCount + change;
+            if (newCount >= 0 && newCount <= MAX_WEIGHTS) {
+                state.weightCount = newCount;
+                recordData();
+                updateDisplay();
+            }
+        }
+
+        function switchSpring(springId) {
+            state.currentSpring = springId;
+            state.weightCount = 0; 
+            
+            // UI Toggle
+            const btnA = document.getElementById('btn-spring-a');
+            const btnB = document.getElementById('btn-spring-b');
+            
+            if (springId === 'A') {
+                btnA.className = "flex-1 py-2 rounded-lg font-bold border-2 border-blue-500 bg-blue-500 text-white transition-colors";
+                btnB.className = "flex-1 py-2 rounded-lg font-bold border-2 border-gray-300 bg-white text-gray-600 hover:bg-gray-50 transition-colors";
+            } else {
+                btnA.className = "flex-1 py-2 rounded-lg font-bold border-2 border-gray-300 bg-white text-gray-600 hover:bg-gray-50 transition-colors";
+                btnB.className = "flex-1 py-2 rounded-lg font-bold border-2 border-red-500 bg-red-500 text-white transition-colors";
+            }
+
+            updateDisplay();
+        }
+
+        function resetExperiment() {
+            resetExperimentData();
+            updateDisplay();
+        }
+
+        function resetExperimentData() {
+            state.weightCount = 0;
+            // 履歴を完全に初期化
+            state.history['A'] = [{weights: 0, extension: 0}];
+            state.history['B'] = [{weights: 0, extension: 0}];
+            
+            // グラフを明示的にクリアしてから更新
+            if(chartInstance) {
+                chartInstance.data.datasets[0].data = [];
+                chartInstance.data.datasets[1].data = [];
+                updateGraph();
+            }
+            updateTable();
+        }
+
+        function calculateExtension(count, springId) {
+            return count * SPRING_SPECS[springId].ratePer20g;
+        }
+
+        function recordData() {
+            const currentHistory = state.history[state.currentSpring];
+            const exists = currentHistory.find(d => d.weights === state.weightCount);
+            if (!exists) {
+                currentHistory.push({
+                    weights: state.weightCount,
+                    extension: calculateExtension(state.weightCount, state.currentSpring)
+                });
+                currentHistory.sort((a, b) => a.weights - b.weights);
+                updateGraph();
+                updateTable();
+            }
+        }
+
+        function updateDisplay() {
+            const spec = SPRING_SPECS[state.currentSpring];
+            
+            document.getElementById('spring-name-display').textContent = spec.name;
+            document.getElementById('spring-name-display').style.color = spec.color;
+            document.getElementById('spring-spec-display').textContent = spec.desc;
+            
+            document.getElementById('weight-count').textContent = state.weightCount;
+            const totalG = state.weightCount * WEIGHT_UNIT_G;
+            const totalN = (state.weightCount * WEIGHT_UNIT_N).toFixed(1);
+            
+            document.getElementById('total-weight').textContent = totalG;
+            document.getElementById('total-force').textContent = totalN;
+
+            drawSimulation();
+        }
+
+        // --- Visual Engine (Canvas) ---
+        function drawSimulation() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = (canvas.width / 2) - 20; 
+            const topY = 50;
+            const coils = 12;
+            const width = 40;
+            
+            const extensionCm = calculateExtension(state.weightCount, state.currentSpring);
+            const extensionPx = extensionCm * PIXELS_PER_CM;
+            const currentLength = SPRING_NATURAL_LENGTH_PX + extensionPx;
+
+            // 1. Draw Ceiling
+            ctx.fillStyle = "#cbd5e1";
+            ctx.fillRect(cx - 60, topY - 10, 120, 10);
+
+            // 2. Draw Spring
+            ctx.beginPath();
+            ctx.strokeStyle = SPRING_SPECS[state.currentSpring].color;
+            ctx.lineWidth = 4;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            ctx.moveTo(cx, topY);
+            
+            const segmentHeight = currentLength / coils;
+
+            for (let i = 0; i < coils; i++) {
+                const y = topY + (i * segmentHeight);
+                if (i === 0) {
+                    ctx.lineTo(cx + width/2, y + segmentHeight/2);
+                } else if (i === coils - 1) {
+                    ctx.lineTo(cx, topY + currentLength);
+                } else {
+                    const xDir = (i % 2 === 0) ? 1 : -1;
+                    ctx.lineTo(cx + (width/2 * xDir), y + segmentHeight/2);
+                    ctx.lineTo(cx - (width/2 * xDir), y + segmentHeight);
+                }
+            }
+            ctx.stroke();
+
+            // 3. Draw Weights
+            const weightSize = 34;
+            const hookY = topY + currentLength;
+            
+            ctx.beginPath();
+            ctx.strokeStyle = "#64748b";
+            ctx.lineWidth = 2;
+            ctx.arc(cx, hookY + 5, 5, 0, Math.PI * 2); 
+            ctx.stroke();
+
+            for (let i = 0; i < state.weightCount; i++) {
+                const wy = hookY + 10 + (i * (weightSize + 2));
+                
+                ctx.fillStyle = "#94a3b8"; 
+                ctx.fillRect(cx - weightSize/2, wy, weightSize, weightSize);
+                
+                ctx.fillStyle = "#64748b";
+                ctx.fillRect(cx - weightSize/2 + 2, wy + 2, weightSize - 4, weightSize - 4);
+                
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                
+                ctx.font = "10px Arial";
+                ctx.fillText("20g", cx, wy + weightSize/2 - 2);
+                
+                ctx.font = "bold 9px Arial";
+                ctx.fillStyle = "#e0f2fe"; 
+                ctx.fillText("0.2N", cx, wy + weightSize/2 + 9);
+            }
+
+            // 4. Draw Ruler Indicator
+            if (state.weightCount > 0) {
+                const arrowX = cx + 80;
+                ctx.beginPath();
+                ctx.strokeStyle = "#ef4444";
+                ctx.lineWidth = 2;
+                
+                ctx.moveTo(cx + 40, topY + SPRING_NATURAL_LENGTH_PX);
+                ctx.lineTo(arrowX + 10, topY + SPRING_NATURAL_LENGTH_PX);
+                
+                ctx.moveTo(cx + 40, hookY);
+                ctx.lineTo(arrowX + 10, hookY);
+                
+                ctx.moveTo(arrowX, topY + SPRING_NATURAL_LENGTH_PX);
+                ctx.lineTo(arrowX, hookY);
+                ctx.stroke();
+
+                ctx.moveTo(arrowX, topY + SPRING_NATURAL_LENGTH_PX);
+                ctx.lineTo(arrowX - 4, topY + SPRING_NATURAL_LENGTH_PX + 6);
+                ctx.moveTo(arrowX, topY + SPRING_NATURAL_LENGTH_PX);
+                ctx.lineTo(arrowX + 4, topY + SPRING_NATURAL_LENGTH_PX + 6);
+
+                ctx.moveTo(arrowX, hookY);
+                ctx.lineTo(arrowX - 4, hookY - 6);
+                ctx.moveTo(arrowX, hookY);
+                ctx.lineTo(arrowX + 4, hookY - 6);
+                ctx.stroke();
+
+                ctx.fillStyle = "#ef4444";
+                ctx.font = "bold 16px Arial";
+                ctx.textAlign = "left";
+                // Fixed Unit: ㎝
+                ctx.fillText(`伸び: ${extensionCm.toFixed(1)} ㎝`, arrowX + 15, topY + SPRING_NATURAL_LENGTH_PX + (extensionPx/2) + 5);
+            }
+        }
+
+        // --- Graph & Table Logic ---
+        function initGraph() {
+            const ctxGraph = document.getElementById('graphCanvas').getContext('2d');
+            chartInstance = new Chart(ctxGraph, {
+                type: 'line',
+                data: {
+                    labels: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200], // Weight (g)
+                    datasets: [
+                        {
+                            label: 'ばねA (伸び)',
+                            data: [],
+                            borderColor: SPRING_SPECS['A'].color,
+                            backgroundColor: SPRING_SPECS['A'].color,
+                            tension: 0,
+                            pointRadius: 4
+                        },
+                        {
+                            label: 'ばねB (伸び)',
+                            data: [],
+                            borderColor: SPRING_SPECS['B'].color,
+                            backgroundColor: SPRING_SPECS['B'].color,
+                            tension: 0,
+                            pointRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'おもりの質量 (g)' }, // Updated Text
+                            min: 0,
+                            max: 200
+                        },
+                        y: {
+                            title: { display: true, text: 'ばねの伸び (㎝)' }, // Updated Unit
+                            min: 0,
+                            suggestedMax: 20
+                        }
+                    },
+                    animation: {
+                        duration: 500
+                    }
+                }
+            });
+        }
+
+        function updateGraph() {
+            const dataA = state.history['A'].map(p => ({x: p.weights * 20, y: p.extension}));
+            const dataB = state.history['B'].map(p => ({x: p.weights * 20, y: p.extension}));
+
+            chartInstance.data.datasets[0].data = dataA;
+            chartInstance.data.datasets[1].data = dataB;
+            chartInstance.update();
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('data-table-body');
+            tbody.innerHTML = '';
+            
+            const hist = state.history[state.currentSpring];
+            
+            hist.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = "bg-white border-b hover:bg-gray-50";
+                
+                const g = row.weights * 20;
+                const n = (row.weights * 0.2).toFixed(1);
+                const cm = row.extension.toFixed(1);
+
+                tr.innerHTML = `
+                    <td class="px-2 py-2 font-medium text-gray-900 text-center">${row.weights}個</td>
+                    <td class="px-2 py-2 text-right">${g} g</td>
+                    <td class="px-2 py-2 text-right text-blue-700 font-bold">${n} N</td>
+                    <td class="px-2 py-2 font-bold text-gray-800 text-right">${cm} ㎝</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- UI Utils ---
+        function switchTab(tabId) {
+            const panelData = document.getElementById('panel-data');
+            const panelChallenge = document.getElementById('panel-challenge');
+            const tabData = document.getElementById('tab-data');
+            const tabChallenge = document.getElementById('tab-challenge');
+
+            if (tabId === 'data') {
+                panelData.classList.remove('hidden');
+                panelChallenge.classList.add('hidden');
+                
+                tabData.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-500 text-blue-600 bg-blue-50";
+                tabChallenge.className = "flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:bg-gray-50";
+            } else {
+                panelData.classList.add('hidden');
+                panelChallenge.classList.remove('hidden');
+                
+                tabData.className = "flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:bg-gray-50";
+                tabChallenge.className = "flex-1 py-3 text-sm font-bold border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50";
+            }
+        }
+
+        // --- Challenge Mode Logic ---
+        let currentQuiz = {};
+
+        function setQuizMode(mode) {
+            state.quizMode = mode;
+            generateQuiz();
+        }
+
+        function generateQuiz() {
+            // Hide previous explanation and result
+            document.getElementById('quiz-explanation').classList.add('hidden');
+            document.getElementById('quiz-result').textContent = '';
+            
+            // Re-enable button
+            const btn = document.getElementById('check-answer-btn');
+            btn.disabled = false;
+            btn.textContent = "答え合わせ";
+            btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+            btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+
+            // Randomly select spring A or B
+            const springKey = Math.random() > 0.5 ? 'A' : 'B';
+            // Random count (3 to 10)
+            const count = Math.floor(Math.random() * 8) + 3; 
+            
+            const spec = SPRING_SPECS[springKey];
+            const weightG = count * 20;
+            const forceN = (count * 0.2).toFixed(1);
+            const extensionCm = count * spec.ratePer20g;
+
+            currentQuiz = {
+                springKey: springKey,
+                count: count,
+                weightG: weightG,
+                forceN: forceN,
+                extensionCm: extensionCm,
+                mode: state.quizMode
+            };
+
+            const textEl = document.getElementById('quiz-text');
+            const unitEl = document.getElementById('quiz-unit');
+            const nameSpan = `<span class="font-bold" style="color:${spec.color}">${spec.name}</span>`;
+
+            // Reset Input
+            document.getElementById('quiz-input').value = '';
+
+            // Generate Question Text
+            if (state.quizMode === 'extension') {
+                // Predict Extension
+                textEl.innerHTML = `${nameSpan}におもりを<span class="font-bold text-lg">${weightG}g</span>吊るすと、<br>ばねは何㎝伸びるでしょうか？`;
+                unitEl.textContent = '㎝';
+                currentQuiz.answer = extensionCm;
+            } 
+            else if (state.quizMode === 'mass') {
+                // Predict Mass
+                textEl.innerHTML = `${nameSpan}が<span class="font-bold text-lg">${extensionCm.toFixed(1)}㎝</span>伸びています。<br>吊るしたおもりの質量は何gでしょうか？`;
+                unitEl.textContent = 'g';
+                currentQuiz.answer = weightG;
+            } 
+            else if (state.quizMode === 'force') {
+                // Predict Force
+                textEl.innerHTML = `${nameSpan}が<span class="font-bold text-lg">${extensionCm.toFixed(1)}㎝</span>伸びています。<br>バネを引く力の大きさは何Nでしょうか？`;
+                unitEl.textContent = 'N';
+                currentQuiz.answer = parseFloat(forceN);
+            }
+        }
+
+        function checkAnswer() {
+            const input = parseFloat(document.getElementById('quiz-input').value);
+            const resultDiv = document.getElementById('quiz-result');
+            const explanationDiv = document.getElementById('quiz-explanation'); // 解説エリア
+            const btn = document.getElementById('check-answer-btn');
+            
+            if (isNaN(input)) {
+                resultDiv.textContent = "数字を入力してください";
+                resultDiv.className = "mt-3 text-center font-bold text-gray-500 h-6 mb-2";
+                return;
+            }
+
+            // Generate Explanation Content
+            let explText = "";
+            const spec = SPRING_SPECS[currentQuiz.springKey];
+            const baseRate = spec.ratePer20g; // cm per 20g (0.2N)
+            const count = currentQuiz.count;
+            
+            explText += `<div class="font-bold text-sm mb-2 border-b border-yellow-200 pb-1 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> 解説</div>`;
+            explText += `<p class="mb-2"><span class="font-bold" style="color:${spec.color}">${spec.name}</span>は、<span class="font-bold">20g（0.2N）につき${baseRate}㎝</span>伸びるばねです。</p>`;
+
+            if (state.quizMode === 'extension') {
+                // g -> cm
+                explText += `<p>吊るした質量は<span class="font-bold">${currentQuiz.weightG}g</span>です。<br>`;
+                explText += `これは20gの <span class="font-bold text-indigo-600">${count}倍</span> です（${currentQuiz.weightG} ÷ 20 = ${count}）。<br>`;
+                explText += `比例するので、伸びも${baseRate}㎝の${count}倍になります。</p>`;
+                // Fix: toFixed(1) for consistent display
+                explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">${baseRate}㎝ × ${count} = ${currentQuiz.answer.toFixed(1)}㎝</div>`;
+            } else if (state.quizMode === 'mass') {
+                // cm -> g
+                explText += `<p>ばねの伸びは<span class="font-bold">${currentQuiz.extensionCm.toFixed(1)}㎝</span>です。<br>`;
+                explText += `これは20g吊るした時の伸び（${baseRate}㎝）の <span class="font-bold text-indigo-600">${count}倍</span> です（${currentQuiz.extensionCm.toFixed(1)} ÷ ${baseRate} = ${count}）。<br>`;
+                explText += `比例するので、質量も20gの${count}倍になります。</p>`;
+                explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">20g × ${count} = ${currentQuiz.answer}g</div>`;
+            } else if (state.quizMode === 'force') {
+                 // cm -> N
+                explText += `<p>ばねの伸びは<span class="font-bold">${currentQuiz.extensionCm.toFixed(1)}㎝</span>です。<br>`;
+                explText += `これは0.2Nの時の伸び（${baseRate}㎝）の <span class="font-bold text-indigo-600">${count}倍</span> です（${currentQuiz.extensionCm.toFixed(1)} ÷ ${baseRate} = ${count}）。<br>`;
+                explText += `比例するので、力の大きさも0.2Nの${count}倍になります。</p>`;
+                explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">0.2N × ${count} = ${currentQuiz.answer.toFixed(1)}N</div>`;
+            }
+            
+            explanationDiv.innerHTML = explText;
+            explanationDiv.classList.remove('hidden');
+
+            // Margin of error allowance check
+            if (Math.abs(input - currentQuiz.answer) < 0.1) {
+                resultDiv.textContent = "正解！素晴らしい！🎉";
+                resultDiv.className = "mt-3 text-center font-bold text-green-600 h-6 mb-2 text-lg";
+                
+                // Disable button to prevent double-submit
+                btn.disabled = true;
+                btn.textContent = "次の問題へ...";
+                btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                btn.classList.add('bg-green-600', 'hover:bg-green-700'); // Green to show success state
+
+                // Delay and new quiz (Longer delay to read explanation)
+                setTimeout(() => {
+                    generateQuiz();
+                }, 8000); // 8 seconds to read
+            } else {
+                resultDiv.textContent = `惜しい！ 下の解説を読んでみよう`;
+                resultDiv.className = "mt-3 text-center font-bold text-red-500 h-6 mb-2";
+            }
+        }
+
+    </script>
+</body>
+</html>
