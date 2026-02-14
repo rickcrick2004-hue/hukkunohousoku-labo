@@ -49,7 +49,7 @@
             </h1>
         </div>
         <div class="text-xs md:text-sm bg-blue-700 px-2 py-1 rounded">
-            Ver <span id="version-display">1.5.1</span>
+            Ver <span id="version-display">1.8.1</span>
         </div>
     </header>
 
@@ -161,6 +161,9 @@
                         <option value="extension">1. 伸びを予測 (g → ㎝)</option>
                         <option value="mass">2. 質量を予測 (㎝ → g)</option>
                         <option value="force">3. 力を予測 (㎝ → N)</option>
+                        <option value="extension_from_force">4. 伸びを予測 (N → ㎝)</option>
+                        <option value="force_from_total_length">5. 全長から力を予測 (㎝ → N)</option>
+                        <option value="total_length_from_force">6. 力から全長を予測 (N → ㎝)</option>
                     </select>
                 </div>
 
@@ -203,7 +206,7 @@
 
     <script>
         // --- Configuration & State ---
-        const APP_VERSION = "1.5.1"; // バージョン更新
+        const APP_VERSION = "1.8.1"; // バージョン更新
         document.getElementById('version-display').textContent = APP_VERSION;
 
         // Physics Constants
@@ -216,7 +219,10 @@
         const WEIGHT_UNIT_N = 0.2; 
         const MAX_WEIGHTS = 10;
         const PIXELS_PER_CM = 15; 
-        const SPRING_NATURAL_LENGTH_PX = 100; 
+        const SPRING_NATURAL_LENGTH_PX = 100;
+        
+        // Quiz constants
+        const QUIZ_NATURAL_LENGTH_CM = 10.0; // もとの長さ(クイズ用)
 
         let state = {
             currentSpring: 'A',
@@ -225,7 +231,15 @@
                 'A': [], 
                 'B': []
             },
-            quizMode: 'extension' // 'extension', 'mass', 'force'
+            quizMode: 'extension',
+            // Modes: 
+            // 1. extension (g -> cm)
+            // 2. mass (cm -> g)
+            // 3. force (cm -> N)
+            // 4. extension_from_force (N -> cm)
+            // 5. force_from_total_length (cm -> N)
+            // 6. total_length_from_force (N -> cm)
+            lastQuizSpring: null // 前回のクイズのばねを記憶
         };
 
         // --- Initialization ---
@@ -524,7 +538,7 @@
                 panelData.classList.remove('hidden');
                 panelChallenge.classList.add('hidden');
                 
-                tabData.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-500 text-blue-600 bg-blue-50";
+                tabData.className = "flex-1 py-3 text-sm font-bold border-b-2 border-blue-500 text-blue-600 bg-blue-500 text-white transition-colors";
                 tabChallenge.className = "flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:bg-gray-50";
             } else {
                 panelData.classList.add('hidden');
@@ -552,11 +566,22 @@
             const btn = document.getElementById('check-answer-btn');
             btn.disabled = false;
             btn.textContent = "答え合わせ";
+            btn.onclick = checkAnswer; // ハンドラを元に戻す
             btn.classList.remove('bg-green-600', 'hover:bg-green-700');
             btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
 
-            // Randomly select spring A or B
-            const springKey = Math.random() > 0.5 ? 'A' : 'B';
+            // Select spring A or B alternately
+            let springKey;
+            if (state.lastQuizSpring === 'A') {
+                springKey = 'B';
+            } else if (state.lastQuizSpring === 'B') {
+                springKey = 'A';
+            } else {
+                // First time random
+                springKey = Math.random() > 0.5 ? 'A' : 'B';
+            }
+            state.lastQuizSpring = springKey; // 更新
+
             // Random count (3 to 10)
             const count = Math.floor(Math.random() * 8) + 3; 
             
@@ -564,6 +589,7 @@
             const weightG = count * 20;
             const forceN = (count * 0.2).toFixed(1);
             const extensionCm = count * spec.ratePer20g;
+            const totalLengthCm = QUIZ_NATURAL_LENGTH_CM + extensionCm;
 
             currentQuiz = {
                 springKey: springKey,
@@ -571,12 +597,22 @@
                 weightG: weightG,
                 forceN: forceN,
                 extensionCm: extensionCm,
+                totalLengthCm: totalLengthCm,
                 mode: state.quizMode
             };
 
             const textEl = document.getElementById('quiz-text');
             const unitEl = document.getElementById('quiz-unit');
-            const nameSpan = `<span class="font-bold" style="color:${spec.color}">${spec.name}</span>`;
+            
+            // 説明文の追加
+            let springDescText = "";
+            if (springKey === 'A') {
+                springDescText = "（10gで1㎝のびる）";
+            } else {
+                springDescText = "（20gで1㎝のびる）";
+            }
+
+            const nameSpan = `<span class="font-bold" style="color:${spec.color}">${spec.name}${springDescText}</span>`;
 
             // Reset Input
             document.getElementById('quiz-input').value = '';
@@ -599,6 +635,24 @@
                 textEl.innerHTML = `${nameSpan}が<span class="font-bold text-lg">${extensionCm.toFixed(1)}㎝</span>伸びています。<br>バネを引く力の大きさは何Nでしょうか？`;
                 unitEl.textContent = 'N';
                 currentQuiz.answer = parseFloat(forceN);
+            }
+            else if (state.quizMode === 'extension_from_force') {
+                // Predict Extension from Force
+                textEl.innerHTML = `${nameSpan}を<span class="font-bold text-lg">${forceN}N</span>の力で引くと、<br>ばねは何㎝伸びるでしょうか？`;
+                unitEl.textContent = '㎝';
+                currentQuiz.answer = extensionCm;
+            }
+            else if (state.quizMode === 'force_from_total_length') {
+                // New Mode 5: Force from Total Length
+                textEl.innerHTML = `もとの長さが${QUIZ_NATURAL_LENGTH_CM}㎝の${nameSpan}の全長が<br><span class="font-bold text-lg">${totalLengthCm.toFixed(1)}㎝</span>になりました。<br>ばねを引く力は何Nでしょうか？`;
+                unitEl.textContent = 'N';
+                currentQuiz.answer = parseFloat(forceN);
+            }
+            else if (state.quizMode === 'total_length_from_force') {
+                // New Mode 6: Total Length from Force
+                textEl.innerHTML = `もとの長さが${QUIZ_NATURAL_LENGTH_CM}㎝の${nameSpan}を<br><span class="font-bold text-lg">${forceN}N</span>の力で引きました。<br>ばねの全長（全体の長さ）は何㎝になるでしょうか？`;
+                unitEl.textContent = '㎝';
+                currentQuiz.answer = totalLengthCm;
             }
         }
 
@@ -628,7 +682,6 @@
                 explText += `<p>吊るした質量は<span class="font-bold">${currentQuiz.weightG}g</span>です。<br>`;
                 explText += `これは20gの <span class="font-bold text-indigo-600">${count}倍</span> です（${currentQuiz.weightG} ÷ 20 = ${count}）。<br>`;
                 explText += `比例するので、伸びも${baseRate}㎝の${count}倍になります。</p>`;
-                // Fix: toFixed(1) for consistent display
                 explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">${baseRate}㎝ × ${count} = ${currentQuiz.answer.toFixed(1)}㎝</div>`;
             } else if (state.quizMode === 'mass') {
                 // cm -> g
@@ -642,6 +695,27 @@
                 explText += `これは0.2Nの時の伸び（${baseRate}㎝）の <span class="font-bold text-indigo-600">${count}倍</span> です（${currentQuiz.extensionCm.toFixed(1)} ÷ ${baseRate} = ${count}）。<br>`;
                 explText += `比例するので、力の大きさも0.2Nの${count}倍になります。</p>`;
                 explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">0.2N × ${count} = ${currentQuiz.answer.toFixed(1)}N</div>`;
+            } else if (state.quizMode === 'extension_from_force') {
+                 // N -> cm (New Mode)
+                explText += `<p>引く力は<span class="font-bold">${currentQuiz.forceN}N</span>です。<br>`;
+                explText += `これは0.2Nの <span class="font-bold text-indigo-600">${count}倍</span> です（${currentQuiz.forceN} ÷ 0.2 = ${count}）。<br>`;
+                explText += `比例するので、伸びも${baseRate}㎝の${count}倍になります。</p>`;
+                explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">${baseRate}㎝ × ${count} = ${currentQuiz.answer.toFixed(1)}㎝</div>`;
+            } else if (state.quizMode === 'force_from_total_length') {
+                // Total Length cm -> N
+                explText += `<p>まず「伸び」を求めます。<br>`;
+                explText += `伸び = 全長 - もとの長さ なので、<br>`;
+                explText += `<span class="font-bold">${currentQuiz.totalLengthCm.toFixed(1)}㎝ - ${QUIZ_NATURAL_LENGTH_CM}㎝ = ${currentQuiz.extensionCm.toFixed(1)}㎝</span> 伸びています。</p>`;
+                explText += `<p class="mt-1">このばねは0.2Nで${baseRate}㎝伸びます。<br>`;
+                explText += `${currentQuiz.extensionCm.toFixed(1)}㎝は${baseRate}㎝の${count}倍なので、力も0.2Nの${count}倍です。</p>`;
+                explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">0.2N × ${count} = ${currentQuiz.answer.toFixed(1)}N</div>`;
+            } else if (state.quizMode === 'total_length_from_force') {
+                // N -> Total Length cm
+                explText += `<p>まず「伸び」を求めます。<br>`;
+                explText += `引く力<span class="font-bold">${currentQuiz.forceN}N</span>は、0.2Nの${count}倍です。<br>`;
+                explText += `伸びも${baseRate}㎝の${count}倍になるので、<span class="font-bold">${baseRate * count}㎝</span>伸びます。</p>`;
+                explText += `<p class="mt-1">全長 = もとの長さ + 伸び なので、</p>`;
+                explText += `<div class="mt-2 bg-white/50 p-2 rounded text-center font-bold border border-yellow-100 text-indigo-700">${QUIZ_NATURAL_LENGTH_CM}㎝ + ${currentQuiz.extensionCm.toFixed(1)}㎝ = ${currentQuiz.answer.toFixed(1)}㎝</div>`;
             }
             
             explanationDiv.innerHTML = explText;
@@ -652,16 +726,12 @@
                 resultDiv.textContent = "正解！素晴らしい！🎉";
                 resultDiv.className = "mt-3 text-center font-bold text-green-600 h-6 mb-2 text-lg";
                 
-                // Disable button to prevent double-submit
-                btn.disabled = true;
-                btn.textContent = "次の問題へ...";
+                // Change button state for next question
+                btn.disabled = false;
+                btn.textContent = "次の問題へ";
+                btn.onclick = generateQuiz; // 次の問題へ進むようにハンドラ変更
                 btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
                 btn.classList.add('bg-green-600', 'hover:bg-green-700'); // Green to show success state
-
-                // Delay and new quiz (Longer delay to read explanation)
-                setTimeout(() => {
-                    generateQuiz();
-                }, 8000); // 8 seconds to read
             } else {
                 resultDiv.textContent = `惜しい！ 下の解説を読んでみよう`;
                 resultDiv.className = "mt-3 text-center font-bold text-red-500 h-6 mb-2";
